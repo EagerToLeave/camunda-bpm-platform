@@ -18,9 +18,6 @@ package org.camunda.bpm.engine.impl.metrics.util;
 
 import org.camunda.bpm.engine.management.Metrics;
 
-/**
- * @author Daniel Kelemen <daniel.kelemen@camunda.com>
- */
 public class MetricsUtil {
 
   /**

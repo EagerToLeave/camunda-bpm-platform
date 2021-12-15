@@ -12,7 +12,9 @@
         name = "name"
         location = "query"
         type = "string"
-        enumValues = ["decision-instances",
+        enumValues = ["activity-instance-start",
+                "activity-instance-end",
+                "decision-instances",
                 "flow-node-instances-start",
                 "flow-node-instances-end",
                 "job-acquisition-attempt",

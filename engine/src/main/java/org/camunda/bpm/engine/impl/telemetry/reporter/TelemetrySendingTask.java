@@ -16,6 +16,25 @@
  */
 package org.camunda.bpm.engine.impl.telemetry.reporter;
 
+import static org.camunda.bpm.engine.impl.util.ConnectUtil.METHOD_NAME_POST;
+import static org.camunda.bpm.engine.impl.util.ConnectUtil.PARAM_NAME_RESPONSE_STATUS_CODE;
+import static org.camunda.bpm.engine.impl.util.ConnectUtil.addRequestTimeoutConfiguration;
+import static org.camunda.bpm.engine.impl.util.ConnectUtil.assembleRequestParameters;
+import static org.camunda.bpm.engine.impl.util.StringUtil.hasText;
+import static org.camunda.bpm.engine.management.Metrics.ACTIVTY_INSTANCE_START;
+import static org.camunda.bpm.engine.management.Metrics.EXECUTED_DECISION_ELEMENTS;
+import static org.camunda.bpm.engine.management.Metrics.EXECUTED_DECISION_INSTANCES;
+import static org.camunda.bpm.engine.management.Metrics.ROOT_PROCESS_INSTANCE_START;
+
+import java.net.HttpURLConnection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimerTask;
+
+import javax.ws.rs.core.MediaType;
+
 import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.impl.ProcessEngineLogger;
 import org.camunda.bpm.engine.impl.cmd.IsTelemetryEnabledCmd;
@@ -42,24 +61,6 @@ import org.camunda.bpm.engine.telemetry.Metric;
 import org.camunda.connect.spi.CloseableConnectorResponse;
 import org.camunda.connect.spi.Connector;
 import org.camunda.connect.spi.ConnectorRequest;
-
-import javax.ws.rs.core.MediaType;
-import java.net.HttpURLConnection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.TimerTask;
-
-import static org.camunda.bpm.engine.impl.util.ConnectUtil.METHOD_NAME_POST;
-import static org.camunda.bpm.engine.impl.util.ConnectUtil.PARAM_NAME_RESPONSE_STATUS_CODE;
-import static org.camunda.bpm.engine.impl.util.ConnectUtil.addRequestTimeoutConfiguration;
-import static org.camunda.bpm.engine.impl.util.ConnectUtil.assembleRequestParameters;
-import static org.camunda.bpm.engine.impl.util.StringUtil.hasText;
-import static org.camunda.bpm.engine.management.Metrics.ACTIVTY_INSTANCE_START;
-import static org.camunda.bpm.engine.management.Metrics.EXECUTED_DECISION_ELEMENTS;
-import static org.camunda.bpm.engine.management.Metrics.EXECUTED_DECISION_INSTANCES;
-import static org.camunda.bpm.engine.management.Metrics.ROOT_PROCESS_INSTANCE_START;
 
 public class TelemetrySendingTask extends TimerTask {
 
@@ -120,14 +121,12 @@ public class TelemetrySendingTask extends TimerTask {
 
     TelemetryUtil.toggleLocalTelemetry(true, telemetryRegistry, metricsRegistry);
 
-    performDataSend(false, () -> {
-      updateAndSendData(true);
-    });
+    performDataSend(false, () -> updateAndSendData(true, true));
   }
 
-  public TelemetryDataImpl updateAndSendData(boolean sendData) {
+  public TelemetryDataImpl updateAndSendData(boolean sendData, boolean addLegacyNames) {
     updateStaticData();
-    InternalsImpl dynamicData = resolveDynamicData(sendData);
+    InternalsImpl dynamicData = resolveDynamicData(sendData, addLegacyNames);
     TelemetryDataImpl mergedData = new TelemetryDataImpl(staticData);
     mergedData.mergeInternals(dynamicData);
 
@@ -260,10 +259,10 @@ public class TelemetrySendingTask extends TimerTask {
     }
   }
 
-  protected InternalsImpl resolveDynamicData(boolean reset) {
+  protected InternalsImpl resolveDynamicData(boolean reset, boolean addLegacyNames) {
     InternalsImpl result = new InternalsImpl();
 
-    Map<String, Metric> metrics = calculateMetrics(reset);
+    Map<String, Metric> metrics = calculateMetrics(reset, addLegacyNames);
     result.setMetrics(metrics);
 
     // command counts are modified after the metrics are retrieved, because
@@ -290,7 +289,7 @@ public class TelemetrySendingTask extends TimerTask {
     return commandsToReport;
   }
 
-  protected Map<String, Metric> calculateMetrics(boolean reset) {
+  protected Map<String, Metric> calculateMetrics(boolean reset, boolean addLegacyNames) {
 
     Map<String, Metric> metrics = new HashMap<>();
 
@@ -299,11 +298,13 @@ public class TelemetrySendingTask extends TimerTask {
 
       for (String metricToReport : METRICS_TO_REPORT) {
         long value = telemetryMeters.get(metricToReport).get(reset);
-        metrics.put(metricToReport, new MetricImpl(value));
+
+        if (addLegacyNames) {
+          metrics.put(metricToReport, new MetricImpl(value));
+        }
 
         // add public names
-        final String internalName = MetricsUtil.resolvePublicName(metricToReport);
-        metrics.put(internalName, new MetricImpl(value));
+        metrics.put(MetricsUtil.resolvePublicName(metricToReport), new MetricImpl(value));
       }
     }
 
